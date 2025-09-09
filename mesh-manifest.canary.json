@@ -1,0 +1,28 @@
+{
+  "type": "asset-bank",
+  "displayName": "Asset Bank",
+  "logoIconUrl": "https://canary-asset-bank-mesh-integration.vercel.app/logo.svg",
+  "badgeIconUrl": "https://canary-asset-bank-mesh-integration.vercel.app/badge.svg",
+  "category": "content",
+  "baseLocationUrl": "https://canary-asset-bank-mesh-integration.vercel.app",
+  "locations": {
+    "install": {
+      "description": [
+        "Asset Bank is a feature-rich Digital Asset Management system that helps you easily manage, showcase and share your content. DAM systems transform digital filing and minimise hours wasted on simply finding your content."
+      ],
+      "informationUrl": "https://docs.uniform.app/docs/integrations/dam/asset-bank"
+    },
+    "settings": {
+      "url": "/settings"
+    },
+    "assetLibrary": {
+      "assetLibraryUrl": "/asset-library",
+      "assetParameterUrl": "/asset-parameter",
+      "assetLibraryLocations": {
+        "asset-preview": {
+          "url": "../asset-preview-dialog"
+        }
+      }
+    }
+  }
+}
