@@ -11,9 +11,12 @@ if (!process.env.AUTH_APP_SECRET) {
   throw new Error('OAUTH_APP_SECRET is not set');
 }
 
-const SERVER_URL = process.env.NEXTAUTH_URL;
+const SERVER_URL = getServerUrl();
+// eslint-disable-next-line no-console
+console.debug('SERVER_URL', SERVER_URL);
+
 if (!SERVER_URL || !isValidUrl(SERVER_URL)) {
-  throw new Error('NEXTAUTH_URL is not a valid URL');
+  throw new Error('SERVER_URL is not a valid URL');
 }
 
 const SERVER_DOMAIN = new URL(SERVER_URL).hostname;
@@ -280,4 +283,22 @@ function isValidUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+function getServerUrl(): string {
+  if (process.env.NEXTAUTH_URL) {
+    return process.env.NEXTAUTH_URL;
+  }
+
+  if (process.env.VERCEL) {
+    if (process.env.VERCEL_ENV === 'production' && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+      return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+    }
+
+    if (process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_BRANCH_URL) {
+      return `https://${process.env.VERCEL_BRANCH_URL}`;
+    }
+  }
+
+  return '';
 }

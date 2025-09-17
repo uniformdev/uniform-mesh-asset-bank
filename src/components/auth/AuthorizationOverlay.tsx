@@ -1,4 +1,4 @@
-import { ReactNode, useMemo } from 'react';
+import { ReactNode, useMemo, useState } from 'react';
 import { Callout, LoadingOverlay } from '@uniformdev/mesh-sdk-react';
 import { DashedBox, Heading, HorizontalRhythm, VerticalRhythm } from '@uniformdev/design-system';
 
@@ -8,6 +8,7 @@ import { LoginButton } from './LoginButton';
 import { Delayed } from '../Delayed';
 
 import ErrorSettingsCallout from '../ErrorSettingsCallout';
+import { useEffectOnce } from 'react-use';
 
 export const AuthorizationOverlay = ({ children }: { children: ReactNode }) => {
   const settings = useIntegrationSettings(false);
@@ -16,7 +17,19 @@ export const AuthorizationOverlay = ({ children }: { children: ReactNode }) => {
 
   const isValidSettings = useMemo(() => validateSettings(settings), [settings]);
 
-  if (!settings || status === 'loading') {
+  const [hasStorageAccess, setHasStorageAccess] = useState<boolean | undefined>(undefined);
+
+  // Self-hosted integration requires third-party cookies to be allowed to store `next-auth` cookies
+  useEffectOnce(() => {
+    const hostname = window.location.hostname;
+    if (hostname === 'uniform.app' || hostname.endsWith('.uniform.app')) {
+      setHasStorageAccess(true);
+    } else {
+      document.hasStorageAccess().then((value) => setHasStorageAccess(value));
+    }
+  });
+
+  if (!settings || status === 'loading' || hasStorageAccess === undefined) {
     return (
       <Delayed delayMs={500}>
         <LoadingOverlay isActive />
@@ -26,6 +39,12 @@ export const AuthorizationOverlay = ({ children }: { children: ReactNode }) => {
 
   if (!isValidSettings) {
     return <ErrorSettingsCallout />;
+  }
+
+  if (!hasStorageAccess) {
+    return (
+      <Callout type="caution">Self-hosted integration requires third-party cookies to be allowed</Callout>
+    );
   }
 
   if (status === 'error') {
