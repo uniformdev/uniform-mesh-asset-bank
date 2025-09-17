@@ -20,19 +20,26 @@ Asset Bank integration for Uniform DXP
 1. Go to Asset Bank Dashboard => System => API
 1. Click `Add new OAuth2 credentials`
 1. Update **Name** and **Secret**
-1. Update **Redirect URLs**: `<VERCEL_SITE_URL>/api/auth/callback/assetbank.app`
+1. Update **Redirect URLs**: `<VERCEL_SITE_URL>/api/auth/callback/assetbank.app` (e.g `https://uniform-mesh-asset-bank.vercel.app/api/auth/callback/assetbank.app`)
 1. Click `Save`
 
 ### Deploy Mesh Integration
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Funiformdev%2Funiform-mesh-asset-bank&env=ASSET_BANK_ACCOUNT_URL,NEXTAUTH_SECRET,AUTH_APP_ID,AUTH_APP_SECRET&envDescription=see%20README%20for%20more%20info&envLink=https%3A%2F%2Fgithub.com%2Funiformdev%2Funiform-mesh-asset-bank%3Ftab%3Dreadme-ov-file%23deploy-mesh-integration&project-name=uniform-mesh-asset-bank&repository-name=uniform-mesh-asset-bank)
+
+Asset Bank integration requires a few environment variables:
+
+- **ASSET_BANK_ACCOUNT_URL** - your Asset Bank account URL (e.g. `https://company.assetbank.app/assetbank-company`)
+- **NEXTAUTH_URL (optional)** - your Vercel site URL (e.g. `https://asset-bank.vercel.app`)
+- **NEXTAUTH_SECRET** - secret key for NextAuth to sign and encrypt JWT tokens and cookies
+- **AUTH_APP_ID** - OAuth application ID for Asset Bank authentication
+- **AUTH_APP_SECRET** - OAuth application secret for Asset Bank authentication
+
+#### Manual deployment
+
 1. Fork this repository (optional)
 1. Create Vercel project based on the repository
-1. Configure Vercel environment variables (see `.env.example`):
-   - **ASSET_BANK_ACCOUNT_URL** - your Asset Bank account URL (e.g. `https://company.assetbank.app/assetbank-company`)
-   - **NEXTAUTH_URL** - your Vercel site URL (e.g. `https://asset-bank.vercel.app`)
-   - **NEXTAUTH_SECRET** - secret key for NextAuth to sign and encrypt JWT tokens and cookies
-   - **AUTH_APP_ID** - OAuth application ID for Asset Bank authentication
-   - **AUTH_APP_SECRET** - OAuth application secret for Asset Bank authentication
+1. Configure Vercel environment variables (see the list above)
 
 ### Register Mesh Integration
 
