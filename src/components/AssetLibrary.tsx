@@ -151,6 +151,8 @@ export const AssetLibrary = ({
           onSearchChange={handleKeywordChanged}
           onResetFilterValues={onResetFilters}
           totalResults={assets.length}
+          // do not show 'no results' container while user is waiting for response
+          resultsContainerView={isSearchLoading ? null : undefined}
           viewSwitchControls={
             <HorizontalRhythm gap="sm" justify="flex-end" align="center">
               <LogoutButton
