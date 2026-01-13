@@ -134,13 +134,15 @@ export const useSearchFilters = ({
 };
 
 const prepareFilters = (initialFilters: FilterEx[], newFilters: FilterEx[]): FilterEx[] => {
-  const filters = initialFilters.filter((f) => f.field && f.required);
+  // - collect required filters from initial
+  // - prevent mutation of existing objects
+  const resultFilters = initialFilters.filter((f) => f.field && f.required).map((filter) => ({ ...filter }));
 
   // mix with new filters, but keep required filters in place
   newFilters.forEach((filter) => {
-    const existing = filters.find((f) => f.field === filter.field);
+    const existing = resultFilters.find((f) => f.field === filter.field);
     if (!existing) {
-      filters.push(filter);
+      resultFilters.push(filter);
       return;
     }
     // avoid overriding required value with empty value
@@ -150,7 +152,7 @@ const prepareFilters = (initialFilters: FilterEx[], newFilters: FilterEx[]): Fil
     }
   });
 
-  return filters;
+  return resultFilters;
 };
 
 const getFoldersFilterOptions = (
