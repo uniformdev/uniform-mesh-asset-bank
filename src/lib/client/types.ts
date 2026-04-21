@@ -105,18 +105,11 @@ export type SingleAttribute = {
   }>;
 };
 
-export type FoldersApiResult = Array<ApiUrl>;
-
-export type SingleFolderApiResult = {
+export type AccessLevelFolder = {
   id: number;
   name: string;
-  children: Array<SingleFolderApiResult>;
-};
-
-export type FlatFolder = {
-  id: number;
-  name: string;
-  path: string;
+  /** Direct children only — API proxy strips deeper levels to avoid large payloads. */
+  children: AccessLevelFolder[];
 };
 
 export type SingleUserApiResult = {

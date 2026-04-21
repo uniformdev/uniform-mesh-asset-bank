@@ -35,26 +35,13 @@ export const integrationSettingsSchema = z.object({
         error: `"File Format" attribute is missing "${FILE_FORMAT_IMAGE}" value in the list of possible options`,
       }
     ),
-  folders: z.array(
-    z.object({
-      id: z.number(),
-      name: z.string(),
-      path: z.string(),
-    })
-  ),
   uniformAssetAttributes: z.array(
     z.object({
       id: z.number(),
       label: z.string(),
     })
   ),
-  rootFolder: z
-    .object({
-      id: z.number(),
-      name: z.string(),
-      path: z.string(),
-    })
-    .optional(),
+  rootFolderId: z.string().optional(),
 });
 
 // In UI components, we should handle the case when settings have not been defined at all

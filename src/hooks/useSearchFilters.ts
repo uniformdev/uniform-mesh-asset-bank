@@ -5,7 +5,6 @@ import { Filter, FilterOption, FilterOptionGroup } from '@uniformdev/mesh-sdk-re
 import {
   FileFormat,
   FILTERABLE_ATTRIBUTE_TYPES,
-  IntegrationSettings,
   OPERATORS_PER_ATTRIBUTE_TYPE,
   SELECTABLE_ATTRIBUTE_TYPES,
   WELL_KNOWN_ATTRIBUTES,
@@ -13,10 +12,6 @@ import {
 } from '@lib';
 
 const FILTER_GROUPS = {
-  SYSTEM: {
-    label: 'System',
-    value: 'system',
-  },
   ATTRIBUTES: {
     label: 'Attributes',
     value: 'attributes',
@@ -37,41 +32,13 @@ export const useSearchFilters = ({
 } => {
   const settings = useIntegrationSettings(true);
 
-  const initialFilters = useMemo(() => {
-    const filters: FilterEx[] = [];
-
-    // ensure we have folder options
-    if (settings.folders?.length) {
-      filters.push({
-        field: WELL_KNOWN_FILTERS.folder,
-        operator: 'eq',
-        value: settings.rootFolder ? String(settings.rootFolder.id) : '',
-        required: !!settings.rootFolder,
-      });
-    }
-
-    // add empty filter if no filters are present for better looking UI
-    if (filters.length === 0) {
-      filters.push({
-        field: '',
-        operator: '',
-        value: '',
-      });
-    }
-
-    return filters;
-  }, [settings.folders?.length, settings.rootFolder]);
+  const initialFilters = useMemo<FilterEx[]>(() => [{ field: '', operator: '', value: '' }], []);
 
   const [filters, setFilters] = useState<FilterEx[]>(initialFilters);
   const activeFilterKeys = useMemo(() => filters.map((x) => x.field), [filters]);
 
   const filterOptions = useMemo(() => {
-    const filterGroups: FilterOptionGroup[] = [
-      {
-        ...FILTER_GROUPS.SYSTEM,
-        options: [getFoldersFilterOptions(settings, activeFilterKeys)].filter((x) => !!x),
-      },
-    ];
+    const filterGroups: FilterOptionGroup[] = [];
 
     if (settings.attributes?.length) {
       filterGroups.push({
@@ -119,7 +86,6 @@ export const useSearchFilters = ({
   const handleFiltersChange = useCallback(
     (filters: Filter[]) => {
       const newFilters = prepareFilters(initialFilters, filters);
-
       setFilters(newFilters);
     },
     [initialFilters]
@@ -134,58 +100,19 @@ export const useSearchFilters = ({
 };
 
 const prepareFilters = (initialFilters: FilterEx[], newFilters: FilterEx[]): FilterEx[] => {
-  // - collect required filters from initial
-  // - prevent mutation of existing objects
-  const resultFilters = initialFilters.filter((f) => f.field && f.required).map((filter) => ({ ...filter }));
+  const filters = initialFilters.filter((f) => f.field && f.required);
 
-  // mix with new filters, but keep required filters in place
   newFilters.forEach((filter) => {
-    const existing = resultFilters.find((f) => f.field === filter.field);
+    const existing = filters.find((f) => f.field === filter.field);
     if (!existing) {
-      resultFilters.push(filter);
+      filters.push(filter);
       return;
     }
-    // avoid overriding required value with empty value
     if (filter.value) {
       existing.operator = filter.operator;
       existing.value = filter.value;
     }
   });
 
-  return resultFilters;
-};
-
-const getFoldersFilterOptions = (
-  settings: IntegrationSettings,
-  activeFilterKeys: string[]
-): FilterOption | null => {
-  if (!settings.folders?.length) {
-    return null;
-  }
-
-  let availableFolders = settings.folders;
-
-  // when root folder is defined, filter should only include the root folder or subfolders
-  const rootFolder = settings.rootFolder;
-  if (rootFolder) {
-    availableFolders = availableFolders.filter((x) => x.path.startsWith(rootFolder.path));
-  }
-
-  return {
-    label: settings.rootFolder ? 'Folder (Required)' : 'Folder',
-    value: WELL_KNOWN_FILTERS.folder,
-    valueOptions: availableFolders.map((folder) => ({
-      label: folder.path,
-      value: String(folder.id),
-    })),
-    operatorOptions: [
-      {
-        label: 'is',
-        value: 'eq',
-        editorType: 'singleChoice',
-        expectedValueType: 'single',
-      },
-    ],
-    disabled: activeFilterKeys.includes(WELL_KNOWN_FILTERS.folder),
-  };
+  return filters;
 };

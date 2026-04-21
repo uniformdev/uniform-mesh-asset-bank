@@ -18,12 +18,16 @@ export const useAssetSearch = ({
   limit,
   offset,
   filters,
+  activeFolderId,
+  explorerMode = false,
 }: {
   client: AssetBankClient | null | undefined;
   keyword?: string;
   limit?: number;
   offset?: number;
   filters: Filter[];
+  activeFolderId?: string | null;
+  explorerMode?: boolean;
 }): ReturnType<typeof useAsync<() => Promise<SearchApiResult | null>>> => {
   const settings = useIntegrationSettings(true);
 
@@ -39,14 +43,23 @@ export const useAssetSearch = ({
       return null;
     }
 
-    // force to fetch only `Image` assets
-    const finalFilters = [
+    // When navigating by folder cards, activeFolderId takes precedence over any folder filter
+    // coming from the SearchAndFilter UI — drop the latter to avoid conflicts.
+    const baseFilters =
+      activeFolderId != null
+        ? memoizedFilters.filter((f) => f.field !== WELL_KNOWN_FILTERS.folder)
+        : memoizedFilters;
+
+    const finalFilters: Filter[] = [
       {
         field: `${WELL_KNOWN_FILTERS.attributePrefix}${fileFormatFieldId}`,
         operator: 'eq',
         value: FILE_FORMAT_IMAGE,
       },
-      ...memoizedFilters,
+      ...(activeFolderId != null
+        ? [{ field: WELL_KNOWN_FILTERS.folder, operator: 'eq', value: activeFolderId }]
+        : []),
+      ...baseFilters,
     ];
 
     return await client.search({
@@ -54,8 +67,11 @@ export const useAssetSearch = ({
       limit,
       offset,
       filters: finalFilters,
+      // In explorer mode show only direct children of the current folder — subfolders
+      // are rendered as navigable cards, so including their assets would be confusing.
+      includeSubfolders: !explorerMode,
     });
-  }, [client, keyword, limit, offset, memoizedFilters, fileFormatFieldId]);
+  }, [client, keyword, limit, offset, memoizedFilters, fileFormatFieldId, activeFolderId, explorerMode]);
 };
 
 const useDeepCompareMemoize = <T>(value: T) => {
