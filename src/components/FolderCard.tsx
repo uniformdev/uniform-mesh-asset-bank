@@ -52,7 +52,7 @@ export function FolderCard({ name, childCount, onClick }: FolderCardProps) {
           {childCount}
         </span>
       ) : null}
-      <Icon icon="folder" size="1.5rem" iconColor={hovered ? 'blue500' : 'gray300'} />
+      <Icon icon="folder" size="1.5rem" iconColor={hovered ? 'action' : 'gray300'} />
       <span
         style={{
           fontSize: '0.75rem',

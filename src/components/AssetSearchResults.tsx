@@ -8,6 +8,8 @@ type AssetSearchResultsProps = {
   suppressEmptyFolder?: boolean;
   /** Name of the current folder, or null when at the unrestricted root. */
   currentFolderName: string | null;
+  /** Number of results, or undefined while loading. */
+  totalResults: number | undefined;
   onResetFilters: () => void;
 };
 
@@ -15,14 +17,10 @@ export const AssetSearchResults = ({
   suppressSearch,
   suppressEmptyFolder = false,
   currentFolderName,
+  totalResults,
   onResetFilters,
 }: AssetSearchResultsProps) => {
-  const { searchTerm, totalResults, filters, setSearchTerm, isLoading } = useSearchAndFilter();
-
-  // Grid skeleton handles the in-progress state
-  if (isLoading) {
-    return null;
-  }
+  const { searchTerm, filters, setSearchTerm } = useSearchAndFilter();
 
   // At the bare explorer root with no keyword or folder filter selected
   if (suppressSearch) {
@@ -33,7 +31,7 @@ export const AssetSearchResults = ({
     );
   }
 
-  // Results are present — nothing to display
+  // Still loading or results are present — nothing to display
   if (totalResults === undefined || totalResults > 0) {
     return null;
   }

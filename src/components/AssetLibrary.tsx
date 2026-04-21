@@ -210,6 +210,7 @@ export const AssetLibrary = ({
                 suppressSearch={false}
                 suppressEmptyFolder={folderStack.length === 0}
                 currentFolderName={folderStack.at(-1)?.name ?? null}
+                totalResults={isSearchLoading ? undefined : assets.length}
                 onResetFilters={onResetFilters}
               />
             }

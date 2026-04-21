@@ -38,55 +38,84 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
 
   try {
     const json = JSON.parse(text);
-
-    // The /rest/access-levels list endpoint returns an array of full URLs, one per folder root:
-    //   ["https://host/appname/rest/access-levels/1", ...]
-    // For large installations this can be tens of thousands of entries and the redundant
-    // host+app-path prefix makes the payload enormous. Strip each entry down to the
-    // /rest/... relative path so the client fetcher can reconstruct the full URL via its apiHost.
-    if (
-      Array.isArray(json) &&
-      json.length > 0 &&
-      typeof json[0] === 'string' &&
-      apiUrl.includes('/rest/access-levels') &&
-      !apiUrl.match(/\/rest\/access-levels\/\d/)
-    ) {
-      const stripped = (json as string[]).map((url) => {
-        try {
-          return new URL(url).pathname.replace(/^.*?(\/rest\/)/, '$1');
-        } catch {
-          return url;
-        }
-      });
-      res.status(response.status).json(stripped);
-      return;
-    }
-
-    // The /rest/access-levels/{id} endpoint returns a single folder with its full subtree.
-    // Large installations can have very deep trees (many MBs). Strip children to a single
-    // depth layer so the payload stays within Vercel's function response size limits.
-    if (
-      !Array.isArray(json) &&
-      typeof json === 'object' &&
-      json !== null &&
-      apiUrl.match(/\/rest\/access-levels\/\d/)
-    ) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stripToOneLevel = (node: any) => ({
-        id: node.id,
-        name: node.name,
-        children: (Array.isArray(node.children) ? node.children : []).map((child: any) => ({
-          id: child.id,
-          name: child.name,
-          children: [],
-        })),
-      });
-      res.status(response.status).json(stripToOneLevel(json));
-      return;
-    }
-
-    res.status(response.status).json(json);
+    const transformed = transformAccessLevelsResponse(json, apiUrl);
+    res.status(response.status).json(transformed);
   } catch {
     res.status(response.status).send(text);
   }
 };
+
+/**
+ * Apply access-levels–specific transformations to keep payloads small.
+ * Returns the original json unchanged for non-access-level endpoints.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transformAccessLevelsResponse(json: any, apiUrl: string): any {
+  if (!apiUrl.includes('/rest/access-levels')) {
+    return json;
+  }
+
+  // /rest/access-levels (list) — strip full URLs down to relative /rest/… paths
+  if (isAccessLevelsList(json, apiUrl)) {
+    return stripAccessLevelUrls(json);
+  }
+
+  // /rest/access-levels/{id} (single) — strip the subtree to one depth level
+  if (isAccessLevelSingle(json, apiUrl)) {
+    return stripToOneLevel(json);
+  }
+
+  return json;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isAccessLevelsList(json: any, apiUrl: string): json is string[] {
+  return (
+    Array.isArray(json) &&
+    json.length > 0 &&
+    typeof json[0] === 'string' &&
+    !apiUrl.match(/\/rest\/access-levels\/\d/)
+  );
+}
+
+/**
+ * The list endpoint returns full absolute URLs per folder root.
+ * Strip to relative /rest/… paths so the client fetcher reconstructs via its apiHost.
+ */
+function stripAccessLevelUrls(urls: string[]): string[] {
+  return urls.map((url) => {
+    try {
+      return new URL(url).pathname.replace(/^.*?(\/rest\/)/, '$1');
+    } catch {
+      return url;
+    }
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isAccessLevelSingle(json: any, apiUrl: string): boolean {
+  return (
+    !Array.isArray(json) &&
+    typeof json === 'object' &&
+    json !== null &&
+    !!apiUrl.match(/\/rest\/access-levels\/\d/)
+  );
+}
+
+/**
+ * The single-folder endpoint returns the full subtree which can be many MBs.
+ * Strip to one depth level to stay within Vercel's function response size limits.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function stripToOneLevel(node: any) {
+  return {
+    id: node.id,
+    name: node.name,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    children: (Array.isArray(node.children) ? node.children : []).map((child: any) => ({
+      id: child.id,
+      name: child.name,
+      children: [],
+    })),
+  };
+}
