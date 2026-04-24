@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAsync } from 'react-use';
 import { AnimatePresence, motion } from 'motion/react';
 
 import { Filter, SearchAndFilter, useUniformMeshSdk } from '@uniformdev/mesh-sdk-react';
@@ -6,6 +7,8 @@ import { Filter, SearchAndFilter, useUniformMeshSdk } from '@uniformdev/mesh-sdk
 import { AssetCardGrid } from './AssetCardGrid';
 import { AssetMediaCard } from './AssetMediaCard';
 import { AssetFileProperties } from './AssetFileProperties';
+import { FolderCard } from './FolderCard';
+import { AssetSearchResults } from './AssetSearchResults';
 
 import {
   AssetPreviewDialog,
@@ -15,8 +18,15 @@ import {
   SearchEntryPreview,
   FileFormat,
 } from '@lib';
-import { useAssetSearch, useAuthContext, useSearchFilters } from '@hooks';
-import { HorizontalRhythm, Pagination, VerticalRhythm } from '@uniformdev/design-system';
+import { useAssetSearch, useAuthContext, useIntegrationSettings, useSearchFilters } from '@hooks';
+import {
+  Button,
+  Caption,
+  HorizontalRhythm,
+  Icon,
+  Pagination,
+  VerticalRhythm,
+} from '@uniformdev/design-system';
 import { LogoutButton } from '@components/auth/LogoutButton';
 import { AssetPreviewWrapper } from '@components/AssetPreviewWrapper';
 
@@ -26,6 +36,8 @@ export type AssetLibraryProps = {
   limit?: number;
   onAssetsSelected?: (assets: Asset[]) => void;
 };
+
+type FolderEntry = { id: number; name: string };
 
 export const AssetLibrary = ({
   mode,
@@ -40,6 +52,45 @@ export const AssetLibrary = ({
   const [offset, setOffset] = useState(0);
   const [hasNextPage, setHasNextPage] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const settings = useIntegrationSettings(true);
+
+  // When no rootFolderId is configured, fall back to '-1' which is the Asset Bank
+  // absolute root — returns all top-level accessible folders and assets.
+  const rootFolderId = settings.rootFolderId ?? '-1';
+
+  // Explorer mode is always on — we always start from some folder root.
+  const explorerMode = true;
+
+  const [foldersOpen, setFoldersOpen] = useState(true);
+
+  // Stack of folders the user has navigated into. Top of stack = current folder.
+  const [folderStack, setFolderStack] = useState<FolderEntry[]>([]);
+
+  const stackTop = folderStack.at(-1);
+  const activeFolderId: string = stackTop ? String(stackTop.id) : rootFolderId;
+
+  // At the absolute root ('-1') with no folder selected, there are no assets to search/filter.
+  const isAtAbsoluteRoot = rootFolderId === '-1' && folderStack.length === 0;
+
+  // Fetch the active folder's direct children dynamically from the API.
+  const { value: currentFolder } = useAsync(async () => {
+    if (!client) return null;
+    return await client.getAccessLevelFolder(activeFolderId);
+  }, [client, activeFolderId]);
+
+  const subfolders = currentFolder?.children ?? [];
+
+  const handleEnterFolder = useCallback((folder: FolderEntry) => {
+    setFolderStack((prev) => [...prev, folder]);
+    setOffset(0);
+    setKeyword('');
+  }, []);
+
+  const handleNavigateToIndex = useCallback((index: number) => {
+    setFolderStack((prev) => prev.slice(0, index));
+    setOffset(0);
+  }, []);
 
   const handlePageChange = useCallback((_limit: number, offset: number) => {
     setOffset(offset);
@@ -100,6 +151,8 @@ export const AssetLibrary = ({
     limit,
     offset,
     filters,
+    activeFolderId,
+    explorerMode,
   });
 
   const assets: SearchEntryPreview[] = useMemo(() => {
@@ -144,25 +197,88 @@ export const AssetLibrary = ({
         gap="sm"
         style={{ marginTop: 'var(--spacing-sm)', display: assetId ? 'none' : undefined }}
       >
-        <SearchAndFilter
-          filters={filters}
-          filterOptions={filterOptions}
-          onChange={onFiltersChange}
-          onSearchChange={handleKeywordChanged}
-          onResetFilterValues={onResetFilters}
-          totalResults={assets.length}
-          // do not show 'no results' container while user is waiting for response
-          resultsContainerView={isSearchLoading ? null : undefined}
-          viewSwitchControls={
-            <HorizontalRhythm gap="sm" justify="flex-end" align="center">
+        {!isAtAbsoluteRoot ? (
+          <SearchAndFilter
+            filters={filters}
+            filterOptions={filterOptions}
+            onChange={onFiltersChange}
+            onSearchChange={handleKeywordChanged}
+            onResetFilterValues={onResetFilters}
+            totalResults={isSearchLoading ? undefined : assets.length}
+            resultsContainerView={
+              <AssetSearchResults
+                suppressSearch={false}
+                suppressEmptyFolder={folderStack.length === 0}
+                currentFolderName={folderStack.at(-1)?.name ?? null}
+                totalResults={isSearchLoading ? undefined : assets.length}
+                onResetFilters={onResetFilters}
+              />
+            }
+            viewSwitchControls={
               <LogoutButton
                 isAuthenticated={status === 'authenticated'}
                 email={email}
                 authRefresh={authRefresh}
               />
+            }
+          />
+        ) : (
+          <HorizontalRhythm justify="flex-end">
+            <LogoutButton
+              isAuthenticated={status === 'authenticated'}
+              email={email}
+              authRefresh={authRefresh}
+            />
+          </HorizontalRhythm>
+        )}
+
+        {folderStack.length > 0 ? (
+          <FolderBreadcrumb stack={folderStack} onNavigate={handleNavigateToIndex} />
+        ) : null}
+
+        {subfolders.length > 0 ? (
+          <VerticalRhythm gap="xs">
+            <HorizontalRhythm align="center" justify="space-between">
+              <HorizontalRhythm gap="xs" align="center">
+                <Icon icon="folder" size="0.875rem" iconColor="gray300" />
+                <Caption css={{ color: 'var(--gray-600)', fontWeight: 600 }}>
+                  {isAtAbsoluteRoot
+                    ? 'Browse folders'
+                    : `Subfolders of ${folderStack.at(-1)?.name ?? currentFolder?.name}`}
+                </Caption>
+              </HorizontalRhythm>
+              <Button type="button" buttonType="ghost" size="zero" onClick={() => setFoldersOpen((v) => !v)}>
+                <Icon
+                  icon={foldersOpen ? 'chevron-up' : 'chevron-down'}
+                  size="0.875rem"
+                  iconColor="gray300"
+                />
+              </Button>
             </HorizontalRhythm>
-          }
-        />
+
+            {foldersOpen ? (
+              // Use a plain CSS grid instead of AssetCardGrid/ObjectGridContainer:
+              // ObjectGridContainer enforces minmax(250px, 1fr) per column which
+              // overflows for compact folder layouts. This div uses pure 1fr columns.
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(8, 1fr)',
+                  gap: 'var(--spacing-base)',
+                }}
+              >
+                {subfolders.map((folder) => (
+                  <FolderCard
+                    key={folder.id}
+                    name={folder.name}
+                    childCount={folder.children.length}
+                    onClick={() => handleEnterFolder(folder)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </VerticalRhythm>
+        ) : null}
 
         <AssetCardGrid
           itemsPerRow={4}
@@ -187,3 +303,42 @@ export const AssetLibrary = ({
     </VerticalRhythm>
   );
 };
+
+type FolderBreadcrumbProps = {
+  stack: FolderEntry[];
+  onNavigate: (index: number) => void;
+};
+
+const breadcrumbLinkStyle = {
+  color: 'var(--color-action)',
+  fontSize: 'var(--text-xs)',
+} as const;
+
+const breadcrumbCurrentStyle = {
+  color: 'var(--gray-900)',
+  fontWeight: 600,
+  fontSize: 'var(--text-xs)',
+} as const;
+
+const FolderBreadcrumb = ({ stack, onNavigate }: FolderBreadcrumbProps) => (
+  <HorizontalRhythm gap="xs" align="center" style={{ flexWrap: 'wrap' }}>
+    <Button type="button" buttonType="ghost" size="zero" onClick={() => onNavigate(0)}>
+      <span css={breadcrumbLinkStyle}>Folders</span>
+    </Button>
+    {stack.map((folder, i) => {
+      const isLast = i === stack.length - 1;
+      return (
+        <Fragment key={folder.id}>
+          <Icon icon="chevron-right" size="0.75rem" iconColor="gray300" />
+          {isLast ? (
+            <span css={breadcrumbCurrentStyle}>{folder.name}</span>
+          ) : (
+            <Button type="button" buttonType="ghost" size="zero" onClick={() => onNavigate(i + 1)}>
+              <span css={breadcrumbLinkStyle}>{folder.name}</span>
+            </Button>
+          )}
+        </Fragment>
+      );
+    })}
+  </HorizontalRhythm>
+);

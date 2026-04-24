@@ -26,14 +26,16 @@ import {
   IntegrationSettingsValidated,
   integrationSettingsSchema,
   WELL_KNOWN_ATTRIBUTES,
+  validateRootFolderIdValue,
 } from '@lib';
+
 import { useAssetBankClient, useIsValidAccountUrl, useReadAuthState } from '@hooks';
 import { LoginButton } from '@components/auth/LoginButton';
 import { InputOptionSelector } from '@components/InputOptionSelector';
 import { LogoutButton } from '@components/auth/LogoutButton';
 
 type Filter = {
-  type: 'attribute' | 'folder';
+  type: 'attribute';
   label: string;
   id: number;
   required?: boolean;
@@ -61,18 +63,16 @@ export default function SettingsPage() {
       rateLimit: value.rateLimit ?? DEFAULT_RATE_LIMIT,
       attributes: value.attributes ?? [],
       uniformAssetAttributes: value.uniformAssetAttributes ?? [],
-      folders: value.folders ?? [],
-      rootFolder: value.rootFolder,
+      rootFolderId: value.rootFolderId,
     } satisfies Settings,
   });
 
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncIncludeFolders, setSyncIncludeFolders] = useState(true);
+  const [syncProgress, setSyncProgress] = useState<{ step: number; total: number } | null>(null);
 
   const apiHost = useWatch<Settings, 'apiHost'>({ control, name: 'apiHost' });
   const attributes = useWatch<Settings, 'attributes'>({ control, name: 'attributes' });
-  const folders = useWatch<Settings, 'folders'>({ control, name: 'folders' });
-  const rootFolder = useWatch<Settings, 'rootFolder'>({ control, name: 'rootFolder' });
+  const rootFolderId = useWatch<Settings, 'rootFolderId'>({ control, name: 'rootFolderId' });
   const uniformAssetAttributes = useWatch<Settings, 'uniformAssetAttributes'>({
     control,
     name: 'uniformAssetAttributes',
@@ -83,6 +83,15 @@ export default function SettingsPage() {
     name: 'assetTransformerPresets',
   });
 
+  // Root Directory ID input state (raw string for the text input)
+  const [rootFolderIdInput, setRootFolderIdInput] = useState(
+    value.rootFolderId ? String(value.rootFolderId) : ''
+  );
+  const [rootFolderValidation, setRootFolderValidation] = useState<'valid' | 'invalid' | null>(
+    value.rootFolderId ? 'valid' : null
+  );
+  const [rootFolderValidating, setRootFolderValidating] = useState(false);
+
   const { optionalFilters, requiredFilters } = useMemo(() => {
     const attributeFilters = attributes.map<Filter>((attr) => ({
       type: 'attribute',
@@ -91,19 +100,11 @@ export default function SettingsPage() {
       required: attr.label === WELL_KNOWN_ATTRIBUTES.fileFormat.label,
     }));
 
-    const folderFilters = folders.map<Filter>((folder) => ({
-      type: 'folder',
-      label: folder.path,
-      id: folder.id,
-    }));
-
-    const filters = [...attributeFilters, ...folderFilters];
-
     return {
-      optionalFilters: filters.filter((f) => !f.required),
-      requiredFilters: filters.filter((f) => f.required),
+      optionalFilters: attributeFilters.filter((f) => !f.required),
+      requiredFilters: attributeFilters.filter((f) => f.required),
     };
-  }, [attributes, folders]);
+  }, [attributes]);
 
   const isValidAccountUrl = useIsValidAccountUrl(apiHost);
 
@@ -151,17 +152,10 @@ export default function SettingsPage() {
       return;
     }
 
-    if (filter.type === 'attribute') {
-      setFormValue(
-        'attributes',
-        attributes.filter((a) => a.id !== filter.id)
-      );
-    } else {
-      setFormValue(
-        'folders',
-        folders.filter((a) => a.id !== filter.id)
-      );
-    }
+    setFormValue(
+      'attributes',
+      attributes.filter((a) => a.id !== filter.id)
+    );
   };
 
   const syncFilters = useCallback(async () => {
@@ -171,24 +165,49 @@ export default function SettingsPage() {
 
     try {
       setIsSyncing(true);
+      setSyncProgress(null);
 
       setFormValue('attributes', []);
-      setFormValue('folders', []);
 
-      const attributes = ((await client.getAttributes()) ?? []).map((a) => ({
+      const attributes = (
+        (await client.getAttributes({
+          onProgress: (step, total) => setSyncProgress({ step, total }),
+        })) ?? []
+      ).map((a) => ({
         id: a.id,
         label: a.label,
         typeId: a.typeId,
         listValues: a.listValues.map((x) => ({ value: x.value, label: x.label })),
       }));
-      const folders = syncIncludeFolders ? ((await client.getFlatFolders()) ?? []) : [];
+      setSyncProgress(null);
 
       setFormValue('attributes', attributes);
-      setFormValue('folders', folders);
     } finally {
       setIsSyncing(false);
+      setSyncProgress(null);
     }
-  }, [client, syncIncludeFolders, setFormValue]);
+  }, [client, setFormValue]);
+
+  const validateRootFolderId = useCallback(
+    async (rawValue: string) => {
+      if (!client) return;
+
+      setRootFolderValidating(true);
+      try {
+        const result = await validateRootFolderIdValue(rawValue, client);
+        if (result === 'valid') {
+          setFormValue('rootFolderId', rawValue.trim());
+          setRootFolderValidation('valid');
+        } else {
+          setFormValue('rootFolderId', undefined);
+          setRootFolderValidation(result === 'empty' ? null : 'invalid');
+        }
+      } finally {
+        setRootFolderValidating(false);
+      }
+    },
+    [client, setFormValue]
+  );
 
   return (
     <form onSubmit={handleSubmit(handleSave)}>
@@ -244,30 +263,31 @@ export default function SettingsPage() {
                     onChange={(e) => setFormValue('rateLimit', e.target.checked ? 15 : 2)}
                   />
                 </div>
-                <InputOptionSelector
-                  label="Restrict to folder"
-                  caption="Assets outside this folder will not be accessible"
-                  isDisabled={!folders.length}
-                  isMulti={false}
-                  options={folders.map((a) => ({
-                    label: a.path,
-                    value: String(a.id),
-                  }))}
-                  value={
-                    rootFolder
-                      ? {
-                          label: rootFolder.path,
-                          value: String(rootFolder.id),
-                        }
-                      : undefined
-                  }
-                  onChange={(newValue) => {
-                    setFormValue(
-                      'rootFolder',
-                      folders.find((a) => a.id === Number(newValue?.value)) ?? undefined
-                    );
-                  }}
-                />
+                <VerticalRhythm gap="0" className="full-width-caption">
+                  <Input
+                    label="Root Directory ID"
+                    caption="Restricts asset browsing to this directory and its subdirectories. Enter the numeric ID from the Asset Bank access level."
+                    placeholder="e.g. 123"
+                    value={rootFolderIdInput}
+                    onChange={(e) => setRootFolderIdInput(e.target.value)}
+                    onBlur={(e) => validateRootFolderId(e.target.value)}
+                    disabled={!isAuthenticated || rootFolderValidating}
+                    icon={
+                      rootFolderValidating ? (
+                        <LoadingIndicator size="sm" color="gray" />
+                      ) : rootFolderValidation === 'valid' ? (
+                        <SuccessIcon />
+                      ) : rootFolderValidation === 'invalid' ? (
+                        <CautionIcon title="Directory ID not found. Check the ID in Asset Bank." />
+                      ) : undefined
+                    }
+                  />
+                  {rootFolderId ? (
+                    <Caption css={{ color: 'var(--gray-500)', marginTop: 'var(--spacing-xs)' }}>
+                      Currently set to ID {rootFolderId}
+                    </Caption>
+                  ) : null}
+                </VerticalRhythm>
               </VerticalRhythm>
             </Details>
 
@@ -332,14 +352,6 @@ export default function SettingsPage() {
                   Resync
                 </HorizontalRhythm>
               </Button>
-              <Switch
-                name="includeFolders"
-                label="Include folders"
-                switchSize="sm"
-                checked={syncIncludeFolders}
-                onChange={(e) => setSyncIncludeFolders(e.target.checked)}
-                disabled={!isAuthenticated}
-              />
             </HorizontalRhythm>
             {isSyncing ? (
               <HorizontalRhythm
@@ -349,6 +361,9 @@ export default function SettingsPage() {
                 style={{ marginTop: 'var(--spacing-sm)' }}
               >
                 <LoadingIndicator size="lg" color="gray" />
+                <Caption>
+                  {syncProgress ? `Syncing… ${syncProgress.step} / ${syncProgress.total}` : 'Syncing…'}
+                </Caption>
               </HorizontalRhythm>
             ) : null}
             {optionalFilters.length > 0 ? (
@@ -429,8 +444,8 @@ const SuccessIcon = () => (
   </span>
 );
 
-const CautionIcon = () => (
-  <Tooltip title="Please check the account URL" placement="bottom">
+const CautionIcon = ({ title }: { title?: string } = {}) => (
+  <Tooltip title={title ?? 'Please check the account URL'} placement="bottom">
     <span css={{ color: 'var(--utility-caution-icon)' }}>
       <Icon icon="warning" iconColor="currentColor" size="1.25rem" />
     </span>
@@ -476,7 +491,7 @@ const AssetTransformerPresets = ({
         <Label>Allowed transformation identifiers</Label>
         <Caption>
           List the preset transformation identifiers from your Asset Transformer that are allowed in Uniform.
-          Adding transformation identifiers that don’t exist in Asset Bank will result in a 404 error
+          Adding transformation identifiers that do not exist in Asset Bank will result in a 404 error
         </Caption>
       </VerticalRhythm>
       <HorizontalRhythm gap="sm" css={{ flexWrap: 'wrap', marginBottom: 'var(--spacing-sm)' }}>
@@ -549,7 +564,6 @@ const FilterChip = ({ filter, onRemove }: { filter: Filter; onRemove?: (filter: 
       size="sm"
       variant="solid"
       text={filter.label}
-      icon={filter.type === 'folder' ? 'folder' : undefined}
       chipAction={onRemove ? <DismissibleChipAction onDismiss={() => onRemove(filter)} /> : undefined}
     />
   );

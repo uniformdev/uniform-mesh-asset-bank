@@ -10,9 +10,7 @@ import {
   AttributesApiResult,
   SingleAttributeListValuesApiResult,
   SingleAttribute,
-  FoldersApiResult,
-  SingleFolderApiResult,
-  FlatFolder,
+  AccessLevelFolder,
   SingleUserApiResult,
 } from './types';
 import { Filter } from '@uniformdev/mesh-sdk-react';
@@ -52,11 +50,13 @@ export class AssetBankClient {
     limit,
     offset,
     filters,
+    includeSubfolders = true,
   }: {
     keyword?: string;
     limit?: number;
     offset?: number;
     filters: Filter[];
+    includeSubfolders?: boolean;
   }): Promise<SearchApiResult | null> {
     // Determine the base URL based on the context
     const apiUrl: URL = new URL('/rest/asset-search', 'https://none.com');
@@ -64,8 +64,7 @@ export class AssetBankClient {
     const folder = filters.find((f) => f.field === WELL_KNOWN_FILTERS.folder)?.value;
     if (folder && typeof folder === 'string') {
       apiUrl.searchParams.set('permissionCategoryForm.categoryIds', folder);
-      // include content from subfolders as well
-      apiUrl.searchParams.set('includeImplicitCategoryMembers', 'true');
+      apiUrl.searchParams.set('includeImplicitCategoryMembers', String(includeSubfolders));
     }
 
     const assetType = filters.find((f) => f.field === WELL_KNOWN_FILTERS.assetType)?.value;
@@ -104,30 +103,13 @@ export class AssetBankClient {
     return asset?.type ? asset : null;
   }
 
-  public async getFlatFolders(): Promise<FlatFolder[] | null> {
-    const folderUrls = await this.fetcher<FoldersApiResult>(`/rest/access-levels`);
-    if (!Array.isArray(folderUrls)) {
-      return null;
-    }
-
-    const flatFolders: FlatFolder[] = [];
-
-    const walkTree = (folder: SingleFolderApiResult, path: string) => {
-      const currPath = path ? `${path}/${folder.name}` : folder.name;
-      flatFolders.push({ id: folder.id, name: folder.name, path: currPath });
-      folder.children.forEach((child) => walkTree(child, currPath));
-    };
-
-    // do not parallelize, we don't need to fetch all folders because of `children`
-    for await (const url of folderUrls) {
-      const folder = await this.fetcher<SingleFolderApiResult>(url);
-
-      if (folder && !flatFolders.some((x) => x.id === folder.id)) {
-        walkTree(folder, '');
-      }
-    }
-
-    return flatFolders.sort((a, b) => a.path.localeCompare(b.path));
+  /**
+   * Fetch a single access-level folder with its direct children (single depth only).
+   * The API proxy strips grandchildren to prevent large payloads.
+   */
+  public async getAccessLevelFolder(id: string): Promise<AccessLevelFolder | null> {
+    const folder = await this.fetcher<AccessLevelFolder>(`/rest/access-levels/${id}`);
+    return folder?.id != null ? folder : null;
   }
 
   public async getAssetTypes(): Promise<SingleAssetTypeApiResult[] | null> {
@@ -147,11 +129,16 @@ export class AssetBankClient {
    * WARNING: Expensive operation!
    * We need to do many fetches because of Asset Bank API design.
    */
-  public async getAttributes(): Promise<SingleAttribute[] | null> {
+  public async getAttributes(options?: {
+    onProgress?: (step: number, total: number) => void;
+  }): Promise<SingleAttribute[] | null> {
     const attributeUrls = await this.fetcher<AttributesApiResult>(`/rest/attributes`);
     if (!Array.isArray(attributeUrls)) {
       return null;
     }
+
+    const total = attributeUrls.length;
+    let step = 0;
 
     const attributes = await Promise.all(
       attributeUrls.map(async (url) => {
@@ -176,6 +163,7 @@ export class AssetBankClient {
             })) ?? [];
         }
 
+        options?.onProgress?.(++step, total);
         return attribute;
       })
     );

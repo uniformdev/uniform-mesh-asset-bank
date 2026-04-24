@@ -1,4 +1,4 @@
-import pThrottle from 'p-throttle';
+import PQueue from 'p-queue';
 import pRetry from 'p-retry';
 
 import { ApiRequestPayload } from '@lib';
@@ -86,13 +86,40 @@ const createFetcherInternal = ({
   // Shared - 2 requests per second
   // Dedicated - 15 requests per second
   // https://support.assetbank.co.uk/hc/en-gb/articles/360004734038-Rate-Limiting
-  const throttler = pThrottle({
-    limit: rateLimit,
+  const queue = new PQueue({
+    concurrency: 1,
     interval: 1000,
-    strict: true,
+    intervalCap: rateLimit,
   });
 
   const validApiHost = apiHost.endsWith('/') ? apiHost.slice(0, -1) : apiHost;
+
+  const applyBackPressure = () => {
+    queue.pause();
+    setTimeout(() => queue.start(), 1000 + 50);
+  };
+
+  const handleResponse = async <TResult>(response: Response, apiUrl: string): Promise<TResult | null> => {
+    if (!response.ok) {
+      if (response.status === 429) {
+        applyBackPressure();
+        throw new RateLimitError(apiUrl);
+      }
+
+      throw new ApiError(response.status, apiUrl);
+    }
+
+    try {
+      return await response.json();
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        // eslint-disable-next-line no-console
+        console.warn(error.message);
+      }
+    }
+
+    return null;
+  };
 
   return async <TResult>(url: string): Promise<TResult | null> => {
     if (!url) {
@@ -102,28 +129,10 @@ const createFetcherInternal = ({
     const apiUrl = isAbsoluteUrl(url) ? url : `${validApiHost}${url}`;
 
     return pRetry<TResult | null>(
-      throttler(async () => {
-        const response = await doFetch(apiUrl, token);
-        if (!response.ok) {
-          if (response.status === 429) {
-            throw new RateLimitError(apiUrl);
-          }
-
-          throw new ApiError(response.status, apiUrl);
-        }
-
-        try {
-          const json: TResult = await response.json();
-          return json;
-        } catch (error: unknown) {
-          if (error instanceof Error) {
-            // eslint-disable-next-line no-console
-            console.warn(error.message);
-          }
-        }
-
-        return null;
-      }),
+      async () => {
+        const response = await queue.add(() => doFetch(apiUrl, token));
+        return handleResponse<TResult>(response!, apiUrl);
+      },
       {
         retries: 3,
         factor: 1.66,
@@ -135,8 +144,7 @@ const createFetcherInternal = ({
             error.statusCode !== 429 &&
             error.statusCode !== 408
           ) {
-            // We don't want to retry 4xx (client-side issues), throwing here will prevent
-            // further retries
+            // Don't retry 4xx client errors (except 429 and 408)
             throw error;
           }
         },
